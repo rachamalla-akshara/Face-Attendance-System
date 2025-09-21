@@ -9,11 +9,9 @@ from email.mime.multipart import MIMEMultipart
 # ---------- FIX: Must be first Streamlit command ----------
 st.set_page_config(page_title="Face Attendance Dashboard", layout="wide")
 
-# ---------- Extra Config to avoid JS loading issues ----------
-st.cache_data.clear()   # clears cache at start
+# ---------- Extra Config to avoid JS fetch issues ----------
+st.cache_data.clear()
 st.cache_resource.clear()
-
-# Streamlit internal config overrides
 st._config.set_option("server.enableCORS", False)
 st._config.set_option("server.enableXsrfProtection", False)
 
@@ -41,6 +39,7 @@ def mark_attendance(student_id, name, image_path):
     time_str = now.strftime("%H:%M:%S")
     global df
 
+    # ✅ Prevent marking attendance twice per day for same ID
     if ((df["StudentID"] == student_id) & (df["Date"] == date_str)).any():
         st.warning(f"⚠️ Attendance already marked for ID {student_id} today.")
         return
@@ -80,24 +79,23 @@ if not st.session_state.logged_in:
     id_input = st.text_input("Enter your Student ID")
     if st.button("Login"):
         if name_input and id_input:
-            now = datetime.now()
-            date_str = now.strftime("%Y-%m-%d")
-
-            # ---------- Check if this StudentID already logged in today ----------
-            if ((df["StudentID"] == id_input) & (df["Date"] == date_str)).any():
-                st.warning(f"⚠️ Student ID {id_input} has already logged in today!")
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            # Check if student already logged in today
+            if ((df["StudentID"] == id_input) & (df["Date"] == today_str)).any():
+                st.warning(f"⚠️ You cannot login twice in a day, {name_input}.")
             else:
                 st.session_state.logged_in = True
                 st.session_state.student_name = name_input
                 st.session_state.student_id = id_input
-                st.success(f"Welcome {name_input} (ID: {id_input})!")
+                st.success(f"Welcome {name_input}! You can mark attendance now.")
         else:
-            st.warning("Please fill in both fields.")
+            st.warning("⚠️ Please enter both Name and Student ID.")
 
 # ---------- Dashboard ----------
 if st.session_state.logged_in:
     st.title(f"🎓 Welcome, {st.session_state.student_name} (ID: {st.session_state.student_id})!")
 
+    # --- Logout ---
     if st.button("🚪 Logout"):
         st.session_state.logged_in = False
         st.session_state.student_name = ""
@@ -146,10 +144,10 @@ if st.session_state.logged_in:
 
             csv_data = df.to_csv(index=False).encode("utf-8")
             st.download_button(
-                "📥 Download CSV", 
-                data=csv_data, 
-                file_name="attendance_records.csv", 
-                mime="text/csv", 
+                "📥 Download CSV",
+                data=csv_data,
+                file_name="attendance_records.csv",
+                mime="text/csv",
                 key="download_csv"
             )
         else:
@@ -169,6 +167,7 @@ if st.session_state.logged_in:
             else:
                 st.warning("Fill all fields (your email, password, student name, student email)")
 
+    # --- Attendance Analytics ---
     with st.expander("📈 Attendance Analytics"):
         st.subheader("Attendance Trend")
         if not df.empty:
@@ -176,5 +175,4 @@ if st.session_state.logged_in:
             st.bar_chart(chart_data.set_index("Date"))
         else:
             st.info("No data to display.")
-
 
