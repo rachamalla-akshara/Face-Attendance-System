@@ -6,35 +6,49 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
+# ---------- FIX: Must be first Streamlit command ----------
+st.set_page_config(page_title="Face Attendance Dashboard", layout="wide")
+
+# ---------- Extra Config to avoid JS loading issues ----------
+st.cache_data.clear()   # clears cache at start
+st.cache_resource.clear()
+
+# Streamlit internal config overrides
+st._config.set_option("server.enableCORS", False)
+st._config.set_option("server.enableXsrfProtection", False)
+
 # ---------- Config ----------
 ATTENDANCE_FILE = "attendance_records.csv"
 IMAGE_FOLDER = "captured_images"
 os.makedirs(IMAGE_FOLDER, exist_ok=True)
 
 # ---------- Load or initialize CSV ----------
-columns = ["Name", "Date", "Time", "Image"]
+columns = ["StudentID", "Name", "Date", "Time", "Image"]
 if not os.path.exists(ATTENDANCE_FILE):
     df = pd.DataFrame(columns=columns)
     df.to_csv(ATTENDANCE_FILE, index=False)
 else:
     df = pd.read_csv(ATTENDANCE_FILE)
-    # Keep only required columns to avoid column mismatch
+    missing_cols = [col for col in columns if col not in df.columns]
+    for col in missing_cols:
+        df[col] = ""
     df = df[columns]
 
 # ---------- Helper Functions ----------
-def mark_attendance(name, image_path):
+def mark_attendance(student_id, name, image_path):
     now = datetime.now()
     date_str = now.strftime("%Y-%m-%d")
     time_str = now.strftime("%H:%M:%S")
     global df
-    # Prevent marking attendance twice on the same day
-    if not ((df["Name"] == name) & (df["Date"] == date_str)).any():
-        new_row = pd.DataFrame([[name, date_str, time_str, image_path]], columns=df.columns)
-        df = pd.concat([df, new_row], ignore_index=True)
-        df.to_csv(ATTENDANCE_FILE, index=False)
-        st.success(f"✅ Attendance marked for {name} on {date_str} at {time_str}")
-    else:
-        st.warning(f"⚠️ Attendance already marked for {name} today.")
+
+    if ((df["StudentID"] == student_id) & (df["Date"] == date_str)).any():
+        st.warning(f"⚠️ Attendance already marked for ID {student_id} today.")
+        return
+
+    new_row = pd.DataFrame([[student_id, name, date_str, time_str, image_path]], columns=df.columns)
+    df = pd.concat([df, new_row], ignore_index=True)
+    df.to_csv(ATTENDANCE_FILE, index=False)
+    st.success(f"✅ Attendance marked for {name} (ID: {student_id}) on {date_str} at {time_str}")
 
 def send_email(sender_email, sender_password, student_email, name, status="Absent"):
     try:
@@ -50,9 +64,6 @@ def send_email(sender_email, sender_password, student_email, name, status="Absen
         st.success(f"🔔 Notification sent to {student_email}")
     except Exception as e:
         st.error(f"⚠️ Email could not be sent: {e}")
-
-# ---------- Streamlit UI ----------
-st.set_page_config(page_title="Face Attendance Dashboard", layout="wide")
 
 # ---------- Session State ----------
 if "logged_in" not in st.session_state:
@@ -72,20 +83,19 @@ if not st.session_state.logged_in:
             st.session_state.logged_in = True
             st.session_state.student_name = name_input
             st.session_state.student_id = id_input
-            st.success(f"Welcome {name_input}!")
+            st.success(f"Welcome {name_input} (ID: {id_input})!")
         else:
             st.warning("Please fill in both fields.")
 
 # ---------- Dashboard ----------
 if st.session_state.logged_in:
-    st.title(f"🎓 Welcome, {st.session_state.student_name}!")
+    st.title(f"🎓 Welcome, {st.session_state.student_name} (ID: {st.session_state.student_id})!")
 
-    # --- Logout Button ---
     if st.button("🚪 Logout"):
         st.session_state.logged_in = False
         st.session_state.student_name = ""
         st.session_state.student_id = ""
-        st.experimental_rerun()  # Reload the app to show login page
+        st.experimental_rerun()
 
     tab1, tab2, tab3 = st.tabs(["Mark Attendance", "View Records", "Send Absent Notification"])
 
@@ -97,26 +107,44 @@ if st.session_state.logged_in:
         if capture_method == "Upload Image":
             uploaded_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"], key="upload_image")
             if uploaded_file:
-                img_path = os.path.join(IMAGE_FOLDER, f"{st.session_state.student_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}.png")
+                img_path = os.path.join(
+                    IMAGE_FOLDER,
+                    f"{st.session_state.student_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}.png"
+                )
                 with open(img_path, "wb") as f:
                     f.write(uploaded_file.getbuffer())
-                mark_attendance(st.session_state.student_name, img_path)
+                mark_attendance(st.session_state.student_id, st.session_state.student_name, img_path)
 
         elif capture_method == "Use Camera":
             img_file_buffer = st.camera_input("Capture Image from Webcam")
             if img_file_buffer:
-                img_path = os.path.join(IMAGE_FOLDER, f"{st.session_state.student_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}.png")
+                img_path = os.path.join(
+                    IMAGE_FOLDER,
+                    f"{st.session_state.student_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}.png"
+                )
                 with open(img_path, "wb") as f:
                     f.write(img_file_buffer.getbuffer())
-                mark_attendance(st.session_state.student_name, img_path)
+                mark_attendance(st.session_state.student_id, st.session_state.student_name, img_path)
 
     # --- Tab 2: View Records ---
     with tab2:
         st.header("📊 Attendance Records")
         if not df.empty:
-            st.dataframe(df)
+            selected_date = st.date_input("Select a date to view attendance")
+            filtered = df[df["Date"] == str(selected_date)]
+            if not filtered.empty:
+                st.dataframe(filtered)
+            else:
+                st.info("No records for this date.")
+
             csv_data = df.to_csv(index=False).encode("utf-8")
-            st.download_button("📥 Download CSV", data=csv_data, file_name="attendance_records.csv", mime="text/csv", key="download_csv")
+            st.download_button(
+                "📥 Download CSV", 
+                data=csv_data, 
+                file_name="attendance_records.csv", 
+                mime="text/csv", 
+                key="download_csv"
+            )
         else:
             st.info("No attendance records yet.")
 
@@ -134,7 +162,6 @@ if st.session_state.logged_in:
             else:
                 st.warning("Fill all fields (your email, password, student name, student email)")
 
-    # --- Optional Analytics ---
     with st.expander("📈 Attendance Analytics"):
         st.subheader("Attendance Trend")
         if not df.empty:
@@ -142,3 +169,5 @@ if st.session_state.logged_in:
             st.bar_chart(chart_data.set_index("Date"))
         else:
             st.info("No data to display.")
+
+
