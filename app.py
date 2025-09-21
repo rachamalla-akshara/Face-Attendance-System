@@ -80,10 +80,17 @@ if not st.session_state.logged_in:
     id_input = st.text_input("Enter your Student ID")
     if st.button("Login"):
         if name_input and id_input:
-            st.session_state.logged_in = True
-            st.session_state.student_name = name_input
-            st.session_state.student_id = id_input
-            st.success(f"Welcome {name_input} (ID: {id_input})!")
+            now = datetime.now()
+            date_str = now.strftime("%Y-%m-%d")
+
+            # ---------- Check if this StudentID already logged in today ----------
+            if ((df["StudentID"] == id_input) & (df["Date"] == date_str)).any():
+                st.warning(f"⚠️ Student ID {id_input} has already logged in today!")
+            else:
+                st.session_state.logged_in = True
+                st.session_state.student_name = name_input
+                st.session_state.student_id = id_input
+                st.success(f"Welcome {name_input} (ID: {id_input})!")
         else:
             st.warning("Please fill in both fields.")
 
