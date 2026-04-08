@@ -12,26 +12,54 @@ import pytz
 import plotly.graph_objects as go
 import plotly.express as px
 import face_recognition
-from PIL import Image 
+from PIL import Image
 import numpy as np
+
 
 def is_face_already_registered(new_face_encoding, reg_student_id):
     faces_dir = "registered_faces"
+    if not os.path.exists(faces_dir):
+        return None
+    
     for fname in os.listdir(faces_dir):
-        if fname.endswith(".jpg") and not fname.startswith(reg_student_id):
+        if not fname.endswith(".jpg"):
+            continue
+        if fname.startswith(reg_student_id):  # Skip own registrations
+            continue
+            
+        try:
             img_path = os.path.join(faces_dir, fname)
+            # Extra safety for Windows paths
+            if not os.path.isfile(img_path):
+                continue
+                
             img = face_recognition.load_image_file(img_path)
             encodings = face_recognition.face_encodings(img)
-            if encodings and face_recognition.compare_faces([encodings[0]], new_face_encoding, tolerance=0.5)[0]:
-                return fname.split("_")[0]
+            
+            if encodings:
+                match = face_recognition.compare_faces(
+                    [encodings[0]], 
+                    new_face_encoding, 
+                    tolerance=0.5
+                )[0]
+                
+                if match:
+                    # Return the student ID (first part before underscore)
+                    return fname.split("_")[0]
+                    
+        except Exception as e:  # Catch any file reading / decoding issues
+            st.warning(f"Skipping corrupted or invalid image: {fname} ({str(e)[:100]})")
+            continue  # Skip bad files instead of crashing
+    
     return None
+
 
 # ---------- Page config ----------
 st.set_page_config(
-    page_title="🎓 Face Attendance Dashboard", 
+    page_title="🎓 Face Attendance Dashboard",
     layout="wide",
     initial_sidebar_state="expanded"
-)
+) 
 
 st.markdown("""
 <style>
@@ -1196,5 +1224,7 @@ else:
         st.toast(f"👋 Welcome {st.session_state.student_name}!", icon="🎉")
         st.session_state['show_welcome'] = False   
 
+        
+         
         
          
